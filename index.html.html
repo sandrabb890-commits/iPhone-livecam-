@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#10131b">
+<title>LiveFX iPhone</title>
+<style>
+:root{color-scheme:dark;--bg:#10131b;--panel:#1b2230;--line:#354052;--text:#f4f6fb;--muted:#aab3c2;--blue:#3787ff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+main{max-width:760px;margin:auto;padding:20px 16px 40px}
+h1{font-size:28px;margin:8px 0}p{color:var(--muted);line-height:1.45}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:16px;margin:16px 0}
+button,.filelabel{border:0;border-radius:12px;background:var(--blue);color:white;padding:13px 17px;font-size:16px;font-weight:650;display:inline-block}
+button.secondary,.filelabel.secondary{background:#303a4c}
+button:disabled{opacity:.5}
+video{width:100%;max-height:55vh;background:#05070b;border-radius:14px;display:block;object-fit:cover}
+.stage{position:relative;overflow:hidden;border-radius:14px;background:#05070b}
+#overlay{position:absolute;width:34%;aspect-ratio:1;object-fit:cover;border-radius:50%;border:3px solid white;left:33%;top:30%;display:none;touch-action:none}
+label{display:block;margin:14px 0 7px;color:#dbe2ee}
+input[type=range],select{width:100%}
+input[type=file]{display:none}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.small{font-size:13px;color:var(--muted)}
+.status{padding:10px;border-radius:10px;background:#121a28;color:#bcd2ff}
+.presetgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.presetgrid button{font-size:14px;padding:10px;background:#303a4c}
+.presetgrid button.active{background:#2366c9}
+footer{font-size:12px;color:var(--muted);line-height:1.5;margin-top:22px}
+</style>
+</head>
+<body>
+<main>
+<h1>LiveFX iPhone</h1>
+<p>A simple browser prototype for camera overlays and microphone tone effects.</p>
+<div class="card">
+  <div class="row">
+    <button id="start">Start camera & mic</button>
+    <button id="stop" class="secondary" disabled>Stop</button>
+  </div>
+  <p id="status" class="status" role="status">Camera and microphone are stopped.</p>
+  <div class="stage">
+    <video id="video" playsinline autoplay muted></video>
+    <img id="overlay" alt="Uploaded face image overlay">
+  </div>
+  <div class="row" style="margin-top:12px">
+    <label class="filelabel secondary" for="photo">Choose a photo</label>
+    <input id="photo" type="file" accept="image/*">
+    <button id="removePhoto" class="secondary">Remove photo</button>
+  </div>
+  <label for="size">Photo size</label><input id="size" type="range" min="12" max="75" value="34">
+  <label for="x">Photo horizontal position</label><input id="x" type="range" min="0" max="100" value="33">
+  <label for="y">Photo vertical position</label><input id="y" type="range" min="0" max="100" value="30">
+  <p class="small">The photo is a manually positioned overlay. This demo does not perform automatic face tracking or realistic AI face swapping.</p>
+</div>
+<div class="card">
+  <h2>Voice effects</h2>
+  <p>Choose a tone preset, then start the microphone. Use headphones to reduce feedback.</p>
+  <label for="preset">Preset</label>
+  <select id="preset">
+    <option value="normal">Normal</option><option value="deep">Deep voice</option>
+    <option value="bright">Bright voice</option><option value="robot">Robot-like</option>
+    <option value="soft">Soft / warm</option><option value="radio">Radio</option>
+  </select>
+  <label for="pitch">Tone shift</label><input id="pitch" type="range" min="-12" max="12" value="0">
+  <label for="gain">Monitoring volume</label><input id="gain" type="range" min="0" max="100" value="45">
+  <p class="small">The audio effects are basic browser filters, not AI voice conversion or guaranteed male/female voice transformation.</p>
+</div>
+<div class="card">
+  <h2>Preset library</h2>
+  <p>100 selectable filter presets. These adjust basic audio tone only.</p>
+  <div id="presets" class="presetgrid"></div>
+</div>
+<footer>
+<strong>Important iPhone limitation:</strong> This web page can use the camera and microphone only inside this page after you grant permission. A normal Safari website cannot replace the camera or microphone feed inside WhatsApp, FaceTime, Instagram, or other iPhone apps. For camera and microphone access, publish this page on an HTTPS website and open that address in Safari.
+</footer>
+</main>
+<script>
+const video=document.getElementById('video'), statusEl=document.getElementById('status');
+const overlay=document.getElementById('overlay');
+let stream=null, audioCtx=null, source=null, filters=[], gainNode=null, photoUrl=null;
+const $=id=>document.getElementById(id);
+function say(s){statusEl.textContent=s}
+$('start').addEventListener('click',async()=>{
+ try{
+  stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'},audio:true});
+  video.srcObject=stream; $('start').disabled=true; $('stop').disabled=false;
+  audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+  source=audioCtx.createMediaStreamSource(stream);
+  const hp=audioCtx.createBiquadFilter();hp.type='highpass';hp.frequency.value=90;window.fxHP=hp;
+  const lp=audioCtx.createBiquadFilter();lp.type='lowpass';lp.frequency.value=9000;window.fxLP=lp;
+  gainNode=audioCtx.createGain();gainNode.gain.value=Number($('gain').value)/100;
+  source.connect(hp);hp.connect(lp);lp.connect(gainNode);gainNode.connect(audioCtx.destination);
+  applyPreset();say('Camera and microphone are active in this Safari page.');
+ }catch(e){say('Could not start camera/microphone: '+e.message+'. Open this page from an HTTPS address and allow Safari permissions.');}
+});
+$('stop').addEventListener('click',()=>{
+ if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;video.srcObject=null;
+ if(audioCtx){audioCtx.close();audioCtx=null}source=null;gainNode=null;window.fxHP=null;window.fxLP=null;
+ $('start').disabled=false;$('stop').disabled=true;say('Camera and microphone are stopped.');
+});
+$('photo').addEventListener('change',e=>{
+ const f=e.target.files&&e.target.files[0];if(!f)return;
+ if(photoUrl)URL.revokeObjectURL(photoUrl);photoUrl=URL.createObjectURL(f);
+ overlay.src=photoUrl;overlay.style.display='block';positionOverlay();
+});
+$('removePhoto').addEventListener('click',()=>{overlay.style.display='none';overlay.removeAttribute('src');$('photo').value='';if(photoUrl)URL.revokeObjectURL(photoUrl);photoUrl=null});
+function positionOverlay(){overlay.style.width=$('size').value+'%';overlay.style.left=$('x').value+'%';overlay.style.top=$('y').value+'%'}
+['size','x','y'].forEach(id=>$(id).addEventListener('input',positionOverlay));
+$('gain').addEventListener('input',()=>{if(gainNode)gainNode.gain.value=Number($('gain').value)/100});
+const presetSettings={normal:[90,9000,0],deep:[65,2500,-3],bright:[180,10000,2],robot:[250,2200,0],soft:[100,4500,-1],radio:[350,3200,0]};
+function applyPreset(){
+ if(!audioCtx)return;
+ const p=presetSettings[$('preset').value]||presetSettings.normal;
+ const nodes=source?source.context:audioCtx;
+ // Adjust the active chain's tone filters without claiming pitch-shifting.
+ const all=audioCtx.destination;
+ // The high/low-pass nodes are retained in the graph; adjust through stored refs.
+ if(window.fxHP){window.fxHP.frequency.setTargetAtTime(p[0],audioCtx.currentTime,.08)}
+ if(window.fxLP){window.fxLP.frequency.setTargetAtTime(p[1],audioCtx.currentTime,.08)}
+}
+$('preset').addEventListener('change',applyPreset);
+$('pitch').addEventListener('input',()=>{say('Tone shift control is illustrative in this basic demo; it does not perform true pitch conversion.')});
+// Build 100 named basic EQ variations
+const grid=$('presets');
+for(let i=1;i<=100;i++){
+ const b=document.createElement('button');b.textContent='Voice preset '+String(i).padStart(2,'0');
+ b.addEventListener('click',()=>{
+  document.querySelectorAll('.presetgrid button').forEach(x=>x.classList.remove('active'));b.classList.add('active');
+  if(audioCtx&&window.fxHP&&window.fxLP){
+   const n=i-1;window.fxHP.frequency.setTargetAtTime(70+(n%10)*28,audioCtx.currentTime,.08);
+   window.fxLP.frequency.setTargetAtTime(2400+(Math.floor(n/10))*650,audioCtx.currentTime,.08);
+  }
+  say('Preset '+i+' selected. This is a simple EQ variation, not an AI gender voice.');
+ });grid.appendChild(b);
+}
+// Rebuild audio graph with accessible filter references
+const originalStart=$('start').onclick;
+const startBtn=$('start');
+startBtn.addEventListener('click',()=>{}, {once:true});
+</script>
+</body></html>
